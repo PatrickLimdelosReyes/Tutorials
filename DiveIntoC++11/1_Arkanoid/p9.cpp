@@ -1,181 +1,308 @@
-// Copyright (c) 2013-2015 Vittorio Romeo
-// License: Academic Free License ("AFL") v. 3.0
-// AFL License page: http://opensource.org/licenses/AFL-3.0
-
-#include <cmath>
+// We include SFML's graphics library, which gives us
+// access to functions and classes that allow us to render 
+// things on the screen.
 #include <SFML/Graphics.hpp>
-
+#include <iostream>
+#include <string>
+#include <cstdlib>
+#include <fstream>
+#include <cmath>
+#include <algorithm>
 using namespace std;
 using namespace sf;
 
-constexpr int windowWidth{800}, windowHeight{600};
-constexpr float ballRadius{10.f}, ballVelocity{8.f};
-constexpr float paddleWidth{60.f}, paddleHeight{20.f}, paddleVelocity{6.f};
-constexpr float blockWidth{60.f}, blockHeight{20.f};
-constexpr int countBlocksX{11}, countBlocksY{4};
-
-struct Ball
-{
-    CircleShape shape;
-    Vector2f velocity{-ballVelocity, -ballVelocity};
-
-    Ball(float mX, float mY)
-    {
-        shape.setPosition(mX, mY);
-        shape.setRadius(ballRadius);
-        shape.setFillColor(Color::Red);
-        shape.setOrigin(ballRadius, ballRadius);
-    }
-
-    void update()
-    {
-        shape.move(velocity);
-
-        if(left() < 0)
-            velocity.x = ballVelocity;
-        else if(right() > windowWidth)
-            velocity.x = -ballVelocity;
-
-        if(top() < 0)
-            velocity.y = ballVelocity;
-        else if(bottom() > windowHeight)
-            velocity.y = -ballVelocity;
-    }
-
-    float x() { return shape.getPosition().x; }
-    float y() { return shape.getPosition().y; }
-    float left() { return x() - shape.getRadius(); }
-    float right() { return x() + shape.getRadius(); }
-    float top() { return y() - shape.getRadius(); }
-    float bottom() { return y() + shape.getRadius(); }
-};
-
-struct Rectangle
-{
-    RectangleShape shape;
-    float x() { return shape.getPosition().x; }
-    float y() { return shape.getPosition().y; }
-    float left() { return x() - shape.getSize().x / 2.f; }
-    float right() { return x() + shape.getSize().x / 2.f; }
-    float top() { return y() - shape.getSize().y / 2.f; }
-    float bottom() { return y() + shape.getSize().y / 2.f; }
-};
-
-struct Paddle : public Rectangle
-{
-    Vector2f velocity;
-
-    Paddle(float mX, float mY)
-    {
-        shape.setPosition(mX, mY);
-        shape.setSize({paddleWidth, paddleHeight});
-        shape.setFillColor(Color::Red);
-        shape.setOrigin(paddleWidth / 2.f, paddleHeight / 2.f);
-    }
-
-    void update()
-    {
-        shape.move(velocity);
-
-        if(Keyboard::isKeyPressed(Keyboard::Key::Left) && left() > 0)
-            velocity.x = -paddleVelocity;
-        else if(Keyboard::isKeyPressed(Keyboard::Key::Right) &&
-                right() < windowWidth)
-            velocity.x = paddleVelocity;
-        else
-            velocity.x = 0;
-    }
-};
-
-struct Brick : public Rectangle
-{
-    bool destroyed{false};
-
-    Brick(float mX, float mY)
-    {
-        shape.setPosition(mX, mY);
-        shape.setSize({blockWidth, blockHeight});
-        shape.setFillColor(Color::Yellow);
-        shape.setOrigin(blockWidth / 2.f, blockHeight / 2.f);
-    }
-};
-
-template <class T1, class T2>
-bool isIntersecting(T1& mA, T2& mB)
-{
-    return mA.right() >= mB.left() && mA.left() <= mB.right() &&
-           mA.bottom() >= mB.top() && mA.top() <= mB.bottom();
-}
-
-void testCollision(Paddle& mPaddle, Ball& mBall)
-{
-    if(!isIntersecting(mPaddle, mBall)) return;
-
-    mBall.velocity.y = -ballVelocity;
-    if(mBall.x() < mPaddle.x())
-        mBall.velocity.x = -ballVelocity;
-    else
-        mBall.velocity.x = ballVelocity;
-}
-
-void testCollision(Brick& mBrick, Ball& mBall)
-{
-    if(!isIntersecting(mBrick, mBall)) return;
-    mBrick.destroyed = true;
-
-    float overlapLeft{mBall.right() - mBrick.left()};
-    float overlapRight{mBrick.right() - mBall.left()};
-    float overlapTop{mBall.bottom() - mBrick.top()};
-    float overlapBottom{mBrick.bottom() - mBall.top()};
-
-    bool ballFromLeft(abs(overlapLeft) < abs(overlapRight));
-    bool ballFromTop(abs(overlapTop) < abs(overlapBottom));
-
-    float minOverlapX{ballFromLeft ? overlapLeft : overlapRight};
-    float minOverlapY{ballFromTop ? overlapTop : overlapBottom};
-
-    if(abs(minOverlapX) < abs(minOverlapY))
-        mBall.velocity.x = ballFromLeft ? -ballVelocity : ballVelocity;
-    else
-        mBall.velocity.y = ballFromTop ? -ballVelocity : ballVelocity;
-}
+int window_W; // Window width
+int window_H; // Window height
+int fps; // Maximum frames per second
 
 int main()
 {
-    Ball ball{windowWidth / 2, windowHeight / 2};
-    Paddle paddle{windowWidth / 2, windowHeight - 50};
-    vector<Brick> bricks;
 
-    for(int iX{0}; iX < countBlocksX; ++iX)
-        for(int iY{0}; iY < countBlocksY; ++iY)
-            bricks.emplace_back(
-                (iX + 1) * (blockWidth + 3) + 22, (iY + 2) * (blockHeight + 3));
+	// --- Input from settings.txt file ---
+	string input;
 
-    RenderWindow window{{windowWidth, windowHeight}, "Arkanoid - 9"};
-    window.setFramerateLimit(60);
+	fstream settingsFile;
+	settingsFile.open("settings.txt");
 
-    while(true)
-    {
-        window.clear(Color::Black);
+	if (!settingsFile) {
 
-        if(Keyboard::isKeyPressed(Keyboard::Key::Escape)) break;
+		cout << "No such file";
+		exit(EXIT_FAILURE);
 
-        ball.update();
-        paddle.update();
-        testCollision(paddle, ball);
-        for(auto& brick : bricks) testCollision(brick, ball);
-        bricks.erase(remove_if(begin(bricks), end(bricks),
-                         [](const Brick& mBrick)
-                         {
-                             return mBrick.destroyed;
-                         }),
-            end(bricks));
+	}
 
-        window.draw(ball.shape);
-        window.draw(paddle.shape);
-        for(auto& brick : bricks) window.draw(brick.shape);
-        window.display();
-    }
+	// Input format: ScreenWidth ScreenHeight FPS 
+	while (settingsFile.good()) {
 
-    return 0;
+		settingsFile >> input;
+		window_W = stoi(input);
+
+		settingsFile >> input;
+		window_H = stoi(input);
+
+		settingsFile >> input;
+		fps = stoi(input);
+
+	}
+
+	settingsFile.close();
+
+	// --- Window Settings ---
+
+	// Create an SFML window of size 800x600 with "Hello SFML" as the title
+	RenderWindow window(VideoMode(window_W, window_H), "Munarriz, De Los Reyes - Final Output");
+
+	// We tell SFML to limit our application to whatever FPS' value is
+	window.setFramerateLimit(fps);
+
+	// Instead of an explicit "isPlaying" bool variable,
+	// we check if the window is still open or not to signify
+	// whether we are still playing or not.
+	// We use the SFML window's isOpen() function, which returns a bool value,
+	// to check whether the window is open or not.
+
+	// --- Initializing Ball ---
+	int ballSize = 15.0f;
+	float ballForce = 10.0f;
+	float ballMass = 1.0f;
+	float ballElasticity = 1.0f;
+	Vector2f BallVelocity(0.0f, 0.0f);
+	Vector2f BallAcceleration(0.0f, 0.0f);
+	Vector2f BallPosition(window_W / 2, window_H / 2);
+
+	CircleShape Ball(ballSize);
+	Ball.setFillColor(Color::Blue);
+	Ball.setPosition(BallPosition.x, BallPosition.y);
+	
+	Vector2f PaddlePosition(window_W / 2, window_H - 50);
+	float PaddleVelocity{6.f};
+	Vector2f Paddle_currentVelocity(0, 0);
+	Vector2f PaddleSize(100.0f, 20.0f);
+	
+	RectangleShape Paddle(PaddleSize);
+	Paddle.setPosition(PaddlePosition);
+	Paddle.setFillColor(Color::Blue);
+	Paddle.setOrigin(PaddleSize.x / 2.f, PaddleSize.y / 2.f);
+	
+
+	// -- Initializing Timestep Stuff
+
+	float accumulator = 0.0f;
+	float timestep = 1.0f / fps;
+
+	// --- Initializing Clock --- 
+	Clock clock;
+	Time elapsedTime = seconds(0);
+	Int32 elapsedTimeAsSeconds;
+	Int32 elapsedTimeAsMilliseconds;
+	float deltaTime;
+
+	// --- Initializing Flags ---
+	bool ball_upFlag = false;
+	bool ball_downFlag = false;
+	bool ball_leftFlag = false;
+	bool ball_rightFlag = false;
+	
+	bool paddle_leftFlag = false;
+	bool paddle_rightFlag = false;
+	
+	bool spaceFlag = false;
+
+	// --- Application loop ---
+	while (window.isOpen())
+	{
+		// --- Clear screen ---
+
+		// Clear the screen using the SFML window's clear() function.
+		// By default, SFML clears the screen by replacing all the colors 
+		// in the background with black.
+		window.clear();
+
+		// Alternatively, we can provide a color to clear the screen with.
+		// If you replace the previous line with the one below, 
+		// you will see a red background instead of black.
+		// window.clear(sf::Color::Red);
+
+
+		// --- Process input/events ---
+
+		// We create a variable to store information about 
+		// events that happen to our window, e.g., window closed, key pressed, etc.
+		Event event;
+
+		// We now check if there were events triggered by the window since the last
+		// iteration of the loop, and react to them accordingly.
+		// As mentioned in the slides, we can also directly update the current state 
+		// at this point, e.g., change player position when a keyboard input event happened
+		while (window.pollEvent(event))
+		{
+			// We check if the event was from the user requesting to close the window.
+			// If it is, we tell SFML window to close the window.
+			if (event.type == Event::Closed)
+			{
+				window.close();
+			}
+
+			// On W, S, A, or D key press
+			if (event.type == Event::KeyPressed)
+			{
+				switch (event.key.code)
+				{
+					// Process the W (up), S (down), A (left), and D (right) keys
+				case sf::Keyboard::W:     ball_upFlag = true; break;
+				case sf::Keyboard::S:    ball_downFlag = true; break;
+				case sf::Keyboard::A:    ball_leftFlag = true; break;
+				case sf::Keyboard::D:   ball_rightFlag = true; break;
+				case sf::Keyboard::Space:   spaceFlag = true; break;
+				case sf::Keyboard::Left:    paddle_leftFlag = true; break;
+				case sf::Keyboard::Right:    paddle_rightFlag = true; break;
+				default: break;
+				}
+			}
+
+			// On W, S, A, or D key release
+			if (event.type == Event::KeyReleased)
+			{
+				switch (event.key.code)
+				{
+					// Process the W (up), S (down), A (left), and D (right) keys
+				case sf::Keyboard::W:     ball_upFlag = false; break;
+				case sf::Keyboard::S:    ball_downFlag = false; break;
+				case sf::Keyboard::A:    ball_leftFlag = false; break;
+				case sf::Keyboard::D:   ball_rightFlag = false; break;
+				case sf::Keyboard::Space:   spaceFlag = false; break;
+				case sf::Keyboard::Left:    paddle_leftFlag = false; break;
+				case sf::Keyboard::Right:    paddle_rightFlag = false; break;				
+				default: break;
+				}
+			}
+			// Alternatively, you can use a switch statement instead of an if-else-if chain
+
+		}
+
+		// --- Update/advance state ---
+
+		// Anything that involves updating the state can be done here
+		// For example, adjusting the position of falling objects due to gravity, etc.
+
+		// deltaTime
+		Time iterationTime = clock.restart();
+		deltaTime = iterationTime.asSeconds(); // we use this for movement since we can't directly use time objects for calculations.
+		elapsedTime += iterationTime;
+		elapsedTimeAsSeconds = elapsedTime.asSeconds(); //we use this for printing since we can't directly print Time Objects	
+
+		// DEBUGGING ------------------------------------ 
+		if (ball_rightFlag) {
+			BallAcceleration.x += ballForce / ballMass;
+		}
+
+		if (ball_leftFlag) {
+			BallAcceleration.x -= ballForce / ballMass;
+		}
+
+		if (ball_upFlag) {
+			BallAcceleration.y -= ballForce / ballMass;
+		}
+
+		if (ball_downFlag) {
+			BallAcceleration.y += ballForce / ballMass;
+		}
+
+		// ----------------------------------------------
+
+		// Physics
+		accumulator += deltaTime;
+		while (accumulator >= timestep) {
+
+			//Ball Physics
+			BallVelocity.x += (BallAcceleration.x * timestep);
+			BallVelocity.y += (BallAcceleration.y * timestep);
+			BallPosition.x += (BallAcceleration.x * (0.5f * timestep * timestep)) + (BallVelocity.x * timestep);
+			BallPosition.y += (BallAcceleration.y * (0.5f * timestep * timestep)) + (BallVelocity.y * timestep);
+
+			//Collision for window boundaries
+			if (BallPosition.x + ballSize >= window_W) {
+				BallPosition.x = window_W - ballSize;
+				BallAcceleration.x = 0;
+				BallVelocity.x = -ballElasticity * (BallVelocity.x);
+			}
+
+			if (BallPosition.x <= 0) {
+				BallPosition.x = ballSize;
+				BallAcceleration.x = 0;
+				BallVelocity.x = -ballElasticity * (BallVelocity.x);
+			}
+
+			if (BallPosition.y <= 0) {
+				BallPosition.y = ballSize;
+				BallAcceleration.y = 0;
+				BallVelocity.y = -ballElasticity * (BallVelocity.y);
+			}
+
+			/*if (BallPosition.y + ballSize >= window_H) {
+				BallPosition.y = window_H - ballSize;
+				BallAcceleration.y = 0;
+				BallVelocity.y = -ballElasticity * (BallVelocity.y);
+			}*/
+
+			if (paddle_leftFlag && (Paddle.getPosition().x - (Paddle.getSize().x)/2.f) >= 0)
+			{
+				Paddle_currentVelocity.x = -PaddleVelocity;
+			}
+			
+			else if (paddle_rightFlag && (Paddle.getPosition().x + (Paddle.getSize().x)/2.f) <= window_W)
+			{
+				Paddle_currentVelocity.x = PaddleVelocity;
+			}
+			
+			else
+			{
+				Paddle_currentVelocity.x = 0;
+			}
+
+			accumulator -= timestep;
+		}
+
+		if (ball_rightFlag == false && ball_leftFlag == false) {
+			BallAcceleration.x = 0.0f;
+		}
+
+		if (ball_upFlag == false && ball_downFlag == false) {
+			BallAcceleration.y = 0.0f;
+		}
+
+		Ball.setPosition(BallPosition.x, BallPosition.y);
+		Paddle.move(Paddle_currentVelocity);
+
+		// DEBUGGING ------------------------------------
+		
+		cout << "BallAcceleration X: " << BallAcceleration.x << endl;
+		cout << "BallAcceleration Y: " << BallAcceleration.y << endl;
+		cout << "BallVelocity X: " << BallVelocity.x << endl;
+		cout << "BallVelocity Y: " << BallVelocity.y << endl;
+		cout << "BallPosition X: " << BallPosition.x << endl;
+		cout << "BallPosition Y: " << BallPosition.y << endl;
+		
+		cout << "PaddlePosition X: " << Paddle.getPosition().x << endl;
+		cout << "PaddlePosition Y: " << Paddle.getPosition().y << endl;
+		cout << "PaddleSize X: " << Paddle.getSize().x << endl;
+		//cout << "PaddleSize Y: " << Paddle.getSize().y << endl;
+		
+		
+
+		// ----------------------------------------------
+
+		// --- Render current state ---
+
+		// Draw all the objects we need to draw
+
+		window.draw(Ball);
+		window.draw(Paddle);
+
+		// Finally, tell SFML to render/display whatever we drew to the screen
+		window.display();
+	}
+
 }
+
+
